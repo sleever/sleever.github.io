@@ -1,0 +1,137 @@
+---
+title: "Predicting exercise quality"
+author: "Stefan Leever"
+date: "December 7, 2016"
+output: html_document
+---
+
+```{r, echo=FALSE,message=FALSE}
+library(caret)
+library(parallel)
+library(parallelML)
+library(Hmisc)
+library(randomForest)
+registerCores(detectCores())
+training = "";
+testing = "";
+fitBelt = "";
+
+prepareDataset <- function() {
+    training <- read.csv("machine-learning/pml-training.csv", na.strings = c("", NA), stringsAsFactors = TRUE)
+    testing <- read.csv("machine-learning/pml-testing.csv", stringsAsFactors = TRUE)
+    
+    trainingNotNA = colnames(as.matrix(training))[colSums(is.na(as.matrix(training))) == 0]
+    trainingNew = training[,trainingNotNA]
+    trainingCor = trainingNew[, !names(trainingNew) %in% c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window", "classe")] 
+    trainingVar = trainingNew[, !names(trainingNew) %in% colnames(trainingCor[, findCorrelation(cor(trainingCor), cutoff = .80)])]
+    zeroVar <- nearZeroVar(trainingVar, saveMetrics = TRUE)
+    trainingNoVariance = trainingCor[, !names(trainingCor) %in% colnames(trainingVar[, zeroVar$percentUnique<1])]
+    
+    columnsNoVariance <- colnames(trainingNoVariance)
+    columnsNoVariance <- c(columnsNoVariance, "classe")
+    
+    trainingNew <- training[, names(training) %in% columnsNoVariance] 
+    
+    testingNew <- testing[,which(colnames(testing) %in% names(trainingNew))]
+    
+    returnList <- list()
+    returnList[['testing']] <- testingNew
+    returnList[['training']] <- trainingNew
+
+    return(returnList)
+}
+
+fitDataset <- function(training) {
+    fitBelt <- train(classe ~ ., method="rf", data=training, trControl=trainControl(method="oob"))
+    return (fitBelt)
+}
+
+predictDataset <- function(fit, testing) {
+    predict(fit, testing)   
+}
+
+## Prepare dataset for further analysis.
+#dataset <- prepareDataset()
+
+```
+
+## Executive summary
+
+This document covers the dataset around sporting activities and will describe the journey to be able to do a prediction on how well the person is performing the exercise.
+
+## Dataset preparation
+
+In order to do a good prediction I have cleaned the dataset to only keep the relevant variables, this means that only the predictors are left and everything else that's not relevant is removed from the dataset.
+
+I have performed various steps to clean the dataset and to know what has to be removed, these steps are explained in the following paragraphs.
+
+### Removing NA's
+
+Because NA's can cause a lot of problems in further processing it makes sense to remove them before doing any further clean up.
+
+### Removing textual columns
+
+Because I was getting errors on the textual columns I have removed them from the dataset as they are not relevant for the assignment, the columns concern: "X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window", "classe" (classe is being re-added later on).
+
+### Finding correlations
+
+Correlations can be considered to have no value for a good prediction so initially I performed a correlation analysis to identify which columns had a large correlation (above 80%) and removed those columns from the dataset.
+
+This means that for the prediction the focus will be to get columns that have as few correlation as possible which will result in the left graph rather than the right graph.
+
+```{r, echo=FALSE,message=FALSE}
+    training <- read.csv("machine-learning/pml-training.csv", na.strings = c("", NA), stringsAsFactors = TRUE)
+
+    trainingNotNA = colnames(as.matrix(training))[colSums(is.na(as.matrix(training))) == 0]
+    trainingNew = training[,trainingNotNA]
+    trainingCor = trainingNew[, !names(trainingNew) %in% c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window", "classe")] 
+    trainingVar = trainingNew[, !names(trainingNew) %in% colnames(trainingCor[, findCorrelation(cor(trainingCor), cutoff = .80)])]
+    zeroVar <- nearZeroVar(trainingVar, saveMetrics = TRUE)
+    trainingNoVariance = trainingCor[, !names(trainingCor) %in% colnames(trainingVar[, zeroVar$percentUnique<1])]
+    
+    par(mfrow=c(1,2))
+    plot(trainingVar$yaw_belt, trainingVar$magnet_belt_y)
+    plot(trainingCor$roll_belt, trainingCor$roll_belt)
+    
+```
+
+### Finding variance
+
+Variance is very important to do a good prediction and thus I did a variance analysis in which I determined which columns had a high variance (enough unique values) (above 1) and removed the columns that had a near zero variance (contained nearly no unique values).
+
+```{r, echo=FALSE,message=FALSE}
+    plot(zeroVar$percentUnique)
+```
+
+This resulted in the following columns to be removed where "classe" will be re-added:
+
+```{r, echo=FALSE}
+    colnames(trainingVar[, zeroVar$percentUnique<1])    
+```
+
+## Fitting the model
+
+To fit the model I initially looked at the original report that was created by the university in which they used bagging and 10 random forests which each had 10 trees were used.
+
+The model that I used to predict uses the classe column on all the other columns that remained in the dataset after cleaning the dataset. This resulted in the model train(classe ~ ., ...). I used the random forest classifier to train the dataset.
+
+To control the computational nuances I used the "out-of-bag" error estimation.
+
+This resulted in the following accuracy for my model.
+
+```{r, echo=FALSE}
+    dataset <- prepareDataset()
+    fit <- fitDataset(dataset$training)
+    summary(fit)
+    print(fit)
+```
+
+## Prediction
+
+Eventually I did the prediction by using the trained model fit and using that on the testing set. This resulted in a prediction that proved 100% accurate for the quiz with 20 questions.
+
+## Choices in the process
+
+THe various steps to clean up the data before making the prediction were done because the initial dataset wasn't able to process on my system. This forced me into cleaning up the dataset by initially removing NA's and eventually led me to removing all text-based columns. This resulted in only the numerical columns to be left over.
+
+The left over columns were used to get a dataset with very few correlations and a lot of variance. This end result was used to train the dataset for the prediction where random forests are used in combination with a "out of bag" error estimation. This proved to be sufficient to do a prediction with a very high accuracy.
